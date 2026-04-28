@@ -11,3 +11,5 @@
 !app_streamlit.py
 !.streamlit/
 !.streamlit/config.toml
+!requirements.txt
+

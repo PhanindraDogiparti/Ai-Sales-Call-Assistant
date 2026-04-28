@@ -1,165 +1,213 @@
-# 🎤🤖 AI Sales Call Assistant  
+# 🎤🤖 AI Sales Call Assistant
 
-[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)  
+[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Framework-Streamlit-red)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-AI Sales Call Assistant is a **real-time AI-powered tool** that helps sales agents transcribe, analyze, and summarize calls.  
-It records live audio 🎙️, transcribes it using **Groq Whisper**, analyzes sentiment & emotion using **Groq LLaMA3**, and stores results in **Google Sheets**.  
-A built-in **Streamlit dashboard** allows agents to log in, review summaries, and generate **AI Post-Call Reports**.
+🚀 **Live Demo:** *(Add your deployed link here)*
 
 ---
-## 📁 Project Structure
-```graphql
-ai-sales-call-assistant/
-├── app_streamlit.py          # Streamlit dashboard
-├── groq_assistant.py         # CLI voice assistant
-├── config.py                 # Audio & session settings
-├── speech_to_text.py         # Handles microphone input
-├── google_sheets.py          # Integration with Google Sheets
-├── .streamlit/
-│   └── secrets.toml          # Contains Groq API key
-├── credentials.json          # Google Service Account file
-├── requirements.txt
-└── README.md
-```
+
+## 📌 Overview
+
+AI Sales Call Assistant is a **real-time AI-powered application** that helps sales agents **record, transcribe, analyze, and summarize calls automatically**.
+
+It supports both:
+
+* 🖥️ **Local microphone recording (sounddevice)**
+* 🌐 **Browser-based recording (WebRTC)** for cloud deployment
+
+The system uses **Groq Whisper** for transcription and **Groq LLaMA3** for sentiment, emotion detection, and intelligent summaries.
+
+---
+
+## 📸 Application Screenshots
+
+### 🎙️ Voice Recording Interface
+
+![Voice Recorder](assets\Homapage.png)
+
+---
+
+### 📊 Call History
+
+![Call History](assets\Historypage.png)
+
+---
+
+### 📈 Analytics Dashboard
+
+![Analytics](assets\analyticspage.png)
+
+---
+
+### 🛒 Purchasing History
+
+![Purchasing](assets\purchasinghistorypage.png)
+
+---
+
+### 🔐 Agent Login
+
+![Login](assets\agentsummarypage.png)
+
+---
+
+### 🧠 Post-Call Summary View
+
+![Summary](assets\postcallsummarypage.png)
+
+---
+
+### 🤖 AI Generated Report
+
+![AI Report](assets\Aigenratedsummary.png)
+
+---
+
 ## ✨ Features
 
-### 🎧 Core Assistant (CLI)
-- 🕵️ **Continuous Speech Capture** — Automatically stops after 5 seconds of silence.  
-- ✍️ **Speech-to-Text** — High-accuracy English transcription via `whisper-large-v3`.  
-- 💬 **Sentiment Analysis** — Classifies as Positive / Negative / Neutral.  
-- 🎭 **Emotion Detection** — Detects Joy, Sadness, Anger, Fear, or Surprise.  
-- 📊 **Google Sheets Logging** — Auto-stores transcript, timestamp, sentiment & emotion.  
-- ⚙️ **Reusable Modules** — Designed for integration into other AI systems.
+### 🎧 Voice Processing
 
-### 💻 Streamlit Dashboard (Agent Portal)
-- 🔐 **Agent Login** — Secure login (username/password).  
-- 📱 **Search Summaries** — Search by customer phone number.  
-- 🧠 **AI Summary Generator** — Produces a professional post-call report with:
-  - 💬 **Overall Sentiment**
-  - 🎯 **Customer Intent**
-  - 🧩 **Key Topics**
-  - ⚠️ **Objections**
-  - ✅ **Resolutions**
-  - 📝 **Next Steps**
-  - 🔁 **Recommended Follow-up**
-- 🚪 **Auto Logout** — Automatically logs out when user switches tabs.  
-- 🧾 **Clean Card Layout** — Beautiful UI with neatly formatted summaries.
+* 🎙️ Real-time recording (Local + WebRTC)
+* ✍️ Speech-to-text using Whisper
+* 💬 Sentiment Analysis (Positive / Neutral / Negative)
+* 🎭 Emotion Detection
 
----
+### 📊 Data Management
 
-## 🧠 Technologies Used
+* 📁 Call history tracking
+* 📈 Analytics dashboard (visual insights)
+* 📤 CSV export
+* 📊 Google Sheets integration
 
-| Area                     | Technology / Library Used                             |
-|--------------------------|-------------------------------------------------------|
-| **Programming Language** | Python 3.11                                           |
-| **Framework**            | Streamlit                                            |
-| **Speech-to-Text**       | Groq Whisper (`whisper-large-v3`)                    |
-| **AI Summarization**     | Groq LLaMA 3.3 (70B Versatile)                       |
-| **AI API**               | Groq Cloud API                                       |
-| **Audio Recording**      | sounddevice, numpy                                   |
-| **Data Storage**         | Google Sheets via gspread & oauth2client             |
-| **Data Handling**        | pandas                                               |
-| **Secrets Management**   | Streamlit Secrets.toml                               |
-| **Frontend Styling**     | Streamlit HTML/CSS Styling                           |
-| **Deployment Ready**     | Works on local machine and Streamlit Cloud           |
+### 🧠 AI Intelligence
+
+* 🤖 AI-generated post-call summaries
+* 🎯 Customer intent detection
+* ⚠️ Objection handling suggestions
+* 🔁 Follow-up recommendations
+
+### 🔐 Security
+
+* Agent login system
+* Session-based access control
 
 ---
 
-## 🧰 Tech Stack Overview
+## 🧠 Tech Stack
 
-| Feature              | Technology Used                            |
-|----------------------|--------------------------------------------|
-| Transcription        | **Groq Whisper (whisper-large-v3)**        |
-| AI Summaries         | **Groq LLaMA3.3 70B Versatile**            |
-| Dashboard UI         | **Streamlit**                              |
-| Data Storage         | **Google Sheets (via gspread)**            |
-| Audio Processing     | **sounddevice**, **numpy**                 |
-| Secrets Management   | **Streamlit Secrets.toml**                 |
+| Category   | Technology            |
+| ---------- | --------------------- |
+| Language   | Python 3.11           |
+| UI         | Streamlit             |
+| Voice      | sounddevice + WebRTC  |
+| AI         | Groq Whisper + LLaMA3 |
+| Storage    | Google Sheets         |
+| Data       | pandas                |
+| Deployment | Streamlit Cloud       |
 
 ---
 
 ## ⚙️ Setup & Installation
 
-### 1️⃣ Clone the Repository
+### 1️⃣ Clone Repository
+
 ```bash
 git clone https://github.com/yourusername/ai-sales-call-assistant.git
 cd ai-sales-call-assistant
 ```
 
 ### 2️⃣ Install Dependencies
+
 ```bash
 pip install -r requirements.txt
-# OR manually:
-pip install streamlit sounddevice numpy gspread oauth2client groq pandas
 ```
-### 3️⃣ Add API Credentials
-🔑 Groq API Key
-Get your API key from [Groq Console](https://console.groq.com/keys)
+
+---
+
+## 🔐 Configuration
+
+### Groq API
+
 ```bash
-export GROQ_API_KEY="your_api_key_here"   # Linux/Mac
-setx GROQ_API_KEY "your_api_key_here"     # Windows
+GROQ_API_KEY=your_api_key_here
 ```
 
-### 📄 Google Sheets Service Account
+### Streamlit Secrets
 
-1. Create a Service Account in Google Cloud Console
-2. Download the JSON credentials
-3. Save it as credentials.json in the project root
-4. Share your target Google Sheet with the service account email
-
-### 🔐 Streamlit Secrets
-Create a file: **.streamlit/secrets.toml**
 ```toml
-GROQ_API_KEY = "your_api_key_here"
+GROQ_API_KEY = "your_key"
+GOOGLE_CREDENTIALS = '{"type":"service_account",...}'
 ```
 
-### ▶️ Usage:
-1. 🧠 CLI Assistant (Voice Recorder)
-   ```bash
-   python groq_assistant.py
-   ```
-2. 🎙️ Speak naturally into your mic
-3. 🕒 Stops automatically after 5 seconds of silence
-4. 📊 Data is logged to Google Sheets automatically ✅
+---
 
-### 💻 Streamlit Dashboard
+## ▶️ Usage
+
+### 🖥️ Local Mode
+
+```bash
+python groq_assistant.py
+```
+
+✔ Uses system mic (`sounddevice`)
+
+---
+
+### 🌐 Web Mode
+
 ```bash
 streamlit run app_streamlit.py
 ```
-Then open in browser: ([Link](http://localhost:8501))
 
-### 🔐 Login
-```yaml
+✔ Uses browser mic (WebRTC)
+
+---
+
+## 🌐 Deployment
+
+1. Push to GitHub
+2. Go to Streamlit Cloud
+3. Select repo
+4. Add secrets
+5. Deploy
+
+---
+
+## ⚠️ Notes
+
+* sounddevice works only locally
+* WebRTC is used for deployed apps
+* Never expose API keys
+
+---
+
+## 🔐 Demo Login
+
+```
 Username: agent  
 Password: 1234
 ```
-🧭 Steps
 
-1. Enter a customer phone number
-2. View all saved summaries
-3. Click 🤖 Generate AI Summary to get a structured post-call report
+---
 
-### 📋 Example AI Summary Output
-```vbnet
-💬 **Overall Sentiment** The overall sentiment was positive with occasional confusion.  
-🎯 **Customer Intent** Interested in exploring enterprise pricing and features.  
-🧩 **Key Topics** Discussed onboarding, SLA, support, and integration timelines.  
-⚠️ **Objections** Concern about compatibility with current CRM.  
-✅ **Resolutions** Scheduled follow-up with technical team.  
-📝 **Next Steps** Send pricing sheet and set up demo call.  
-🔁 **Recommended Follow-up** Weekly update until closure.
-```
+## 🚀 Future Improvements
 
-### 📦 Requirements
-Here’s a quick reference for your requirements.txt:
-```nginx
-streamlit
-sounddevice
-numpy
-pandas
-gspread
-oauth2client
-groq
-```
-💡 Powered by Groq Whisper + LLaMA3 and Streamlit
+* CRM Integration
+* Real-time call streaming
+* Multi-language support
+* Advanced analytics
+
+---
+
+## 📄 License
+
+MIT License
+
+---
+
+## 🙌 Author
+
+**Phanindra (Phani)**
+AI & ML Enthusiast 🚀
