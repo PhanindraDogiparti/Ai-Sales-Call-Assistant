@@ -12,4 +12,5 @@
 !.streamlit/
 !.streamlit/config.toml
 !requirements.txt
+!assets/
 
