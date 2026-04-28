@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+groq
+SpeechRecognition
+gspread
+oauth2client
+# sounddevice
+streamlit-webrtc
