@@ -20,9 +20,6 @@ It supports both:
 The system uses **Groq Whisper** for transcription and **Groq LLaMA3** for sentiment, emotion detection, and intelligent summaries.
 
 ---
-
-## 📸 Application Screenshots
-
 ## 📸 Application Screenshots
 
 ### 🎙️ Voice Recording Interface
