@@ -4,8 +4,11 @@ import numpy as np
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import av
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 
-from speech_to_text import calibrate_silence, record_until_silence
+# from speech_to_text import calibrate_silence, record_until_silence
+
 from sentiment import analyze_audio
 from google_sheets import ensure_headers, save_to_sheets
 from config import client as groq_client, sheet
@@ -73,11 +76,13 @@ st.markdown(
     unsafe_allow_html=True
 )
 # ---------------- Helpers ----------------
-def _background_capture(threshold, holder, stop_event):
-    audio_list, stop_reason = record_until_silence(threshold, stop_event=stop_event)
-    holder["audio_list"] = audio_list
-    holder["stop_reason"] = stop_reason
-    holder["done"] = True
+# def _background_capture(threshold, holder, stop_event):
+#     audio_list, stop_reason = record_until_silence(threshold, stop_event=stop_event)
+#     holder["audio_list"] = audio_list
+#     holder["stop_reason"] = stop_reason
+#     holder["done"] = True
+
+
 
 def refresh_animation(flag_key="_do_refresh"):
     if st.session_state.get(flag_key):
@@ -139,6 +144,17 @@ PRODUCT_PRICE_MAP = {
     "IoT Sensors": 5000,
     "Yield Prediction AI": 7000
 }
+
+class AudioProcessor(AudioProcessorBase):
+    def __init__(self):
+        self.frames = []
+
+    def recv(self, frame: av.AudioFrame):
+        audio = frame.to_ndarray()
+        self.frames.append(audio)
+        return frame
+    
+
 # ---- LLM Summary generator (safe, JSON-only) ----
 def generate_llm_summary(transcript: str, customer: dict, sentiment: str, emotion: str) -> tuple[str, str]:
     """Return (summary, action_items_str). If transcript is empty, return a silent-call message."""
@@ -443,49 +459,72 @@ if tab == "Record":
                         st.caption("_Recommendations will appear after a call with detected speech._")
 
         # ==== Recording state ====
-        st.session_state.setdefault("rec_thread", None)
-        st.session_state.setdefault("rec_holder", {})
-        st.session_state.setdefault("rec_stop", None)
-        st.session_state.setdefault("rec_start_ts", None)
-        st.session_state.setdefault("is_recording", False)
+        st.subheader("🎙️ Live Voice Recording (WebRTC)")
 
-        # Toggle button
-        label = "⏹️ Stop Recording" if st.session_state.is_recording else "🔴 Start Recording"
-        toggled = st.button(label, use_container_width=True)
+        ctx = webrtc_streamer(
+        key="audio",
+        audio_processor_factory=AudioProcessor,
+        media_stream_constraints={"audio": True, "video": False},
+    )
 
-        if toggled:
-            if not st.session_state.is_recording:
-                # reset old results
-                for k in ("audio","transcript","sentiment","emotion","stop_reason",
-                          "timestamp","ranked_products","call_had_speech"):
-                    st.session_state.pop(k, None)
-                st.session_state["transcript"] = None
+    if ctx.audio_processor:
+        st.success("🎙️ Recording... Speak now")
 
-                with st.status("Calibrating baseline noise…", expanded=True) as s:
-                    thr = calibrate_silence()
-                    s.write(f"Calibrated threshold = {thr:.6f}")
-                    s.update(label="Listening… Speak now.")
+        if st.button("🛑 Stop & Analyze", use_container_width=True):
+            audio_frames = ctx.audio_processor.frames
 
-                holder = {"done": False}
-                stop_event = threading.Event()
-                t = threading.Thread(target=_background_capture, args=(thr, holder, stop_event), daemon=True)
-                t.start()
+            if len(audio_frames) > 0:
+                audio_np = np.concatenate(audio_frames, axis=0)
 
-                st.session_state.rec_holder = holder
-                st.session_state.rec_stop = stop_event
-                st.session_state.rec_thread = t
-                st.session_state.rec_start_ts = time.time()
-                st.session_state.is_recording = True
+                st.session_state["audio"] = audio_np
+                st.session_state["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+                st.success("✅ Audio captured successfully")
             else:
-                if st.session_state.rec_stop is not None:
-                    st.session_state.rec_stop.set()
+                st.warning("⚠️ No audio recorded")
+        # st.session_state.setdefault("rec_thread", None)
+        # st.session_state.setdefault("rec_holder", {})
+        # st.session_state.setdefault("rec_stop", None)
+        # st.session_state.setdefault("rec_start_ts", None)
+        # st.session_state.setdefault("is_recording", False)
 
-        # Timer while recording
-        if st.session_state.is_recording and st.session_state.rec_thread and st.session_state.rec_thread.is_alive():
-            elapsed = int(time.time() - (st.session_state.rec_start_ts or time.time()))
-            st.markdown(f"**⏱️ Recording:** {elapsed:02d} sec")
-            time.sleep(1)
-            st.rerun()
+        # # Toggle button
+        # label = "⏹️ Stop Recording" if st.session_state.is_recording else "🔴 Start Recording"
+        # toggled = st.button(label, use_container_width=True)
+
+        # if toggled:
+        #     if not st.session_state.is_recording:
+        #         # reset old results
+        #         for k in ("audio","transcript","sentiment","emotion","stop_reason",
+        #                   "timestamp","ranked_products","call_had_speech"):
+        #             st.session_state.pop(k, None)
+        #         st.session_state["transcript"] = None
+
+        #         with st.status("Calibrating baseline noise…", expanded=True) as s:
+        #             thr = calibrate_silence()
+        #             s.write(f"Calibrated threshold = {thr:.6f}")
+        #             s.update(label="Listening… Speak now.")
+
+        #         holder = {"done": False}
+        #         stop_event = threading.Event()
+        #         t = threading.Thread(target=_background_capture, args=(thr, holder, stop_event), daemon=True)
+        #         t.start()
+
+        #         st.session_state.rec_holder = holder
+        #         st.session_state.rec_stop = stop_event
+        #         st.session_state.rec_thread = t
+        #         st.session_state.rec_start_ts = time.time()
+        #         st.session_state.is_recording = True
+        #     else:
+        #         if st.session_state.rec_stop is not None:
+        #             st.session_state.rec_stop.set()
+
+        # # Timer while recording
+        # if st.session_state.is_recording and st.session_state.rec_thread and st.session_state.rec_thread.is_alive():
+        #     elapsed = int(time.time() - (st.session_state.rec_start_ts or time.time()))
+        #     st.markdown(f"**⏱️ Recording:** {elapsed:02d} sec")
+        #     time.sleep(1)
+        #     st.rerun()
 
         # After recording stops
         if st.session_state.rec_thread is not None and not st.session_state.rec_thread.is_alive():
