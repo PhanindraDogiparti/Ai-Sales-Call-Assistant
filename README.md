@@ -23,45 +23,40 @@ The system uses **Groq Whisper** for transcription and **Groq LLaMA3** for senti
 
 ## 📸 Application Screenshots
 
-### 🎙️ Voice Recording Interface
+## 📸 Application Screenshots
 
-![Voice Recorder](assets\Homapage.png)
+### 🎙️ Voice Recording Interface
+![Voice Recorder](assets/Homapage.png)
 
 ---
 
 ### 📊 Call History
-
-![Call History](assets\Historypage.png)
+![Call History](assets/Historypage.png)
 
 ---
 
 ### 📈 Analytics Dashboard
-
-![Analytics](assets\analyticspage.png)
+![Analytics](assets/analyticspage.png)
 
 ---
 
 ### 🛒 Purchasing History
-
-![Purchasing](assets\purchasinghistorypage.png)
+![Purchasing](assets/purchasinghistorypage.png)
 
 ---
 
 ### 🔐 Agent Login
-
-![Login](assets\agentsummarypage.png)
+![Login](assets/agentsummarypage.png)
 
 ---
 
 ### 🧠 Post-Call Summary View
-
-![Summary](assets\postcallsummarypage.png)
+![Summary](assets/postcallsummarypage.png)
 
 ---
 
 ### 🤖 AI Generated Report
-
-![AI Report](assets\Aigenratedsummary.png)
+![AI Report](assets/Aigenratedsummary.png)
 
 ---
 
