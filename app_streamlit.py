@@ -4,7 +4,7 @@ import numpy as np
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import av
+
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 
 # from speech_to_text import calibrate_silence, record_until_silence
@@ -149,7 +149,8 @@ class AudioProcessor(AudioProcessorBase):
     def __init__(self):
         self.frames = []
 
-    def recv(self, frame: av.AudioFrame):
+    # def recv(self, frame: av.AudioFrame):
+    def recv(self, frame):
         audio = frame.to_ndarray()
         self.frames.append(audio)
         return frame
