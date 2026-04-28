@@ -4,7 +4,7 @@
 [![Streamlit](https://img.shields.io/badge/Framework-Streamlit-red)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-🚀 **Live Demo:** *(Add your deployed link here)*
+🚀 **Live Demo:** *(https://ai-sales-call-assistant.streamlit.app/)*
 
 ---
 
