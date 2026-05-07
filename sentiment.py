@@ -55,6 +55,17 @@ def _looks_like_empty_text(t: str) -> bool:
         return True
     return False
 
+# def analyze_audio(recording, stop_reason: str):
+#     """
+#     If stop_reason indicates silence → return ('Not Speaking','N/A','N/A').
+#     Otherwise transcribe and classify normally.
+#     """
+#     # ✅ Your requested rule:
+#     if isinstance(stop_reason, str) and stop_reason.lower().startswith("silent"):
+#         return "Not Speaking", "N/A", "N/A"
+
+#     # Convert audio to mono int16
+#%     pcm = _to_mono_int16(recording)
 def analyze_audio(recording, stop_reason: str):
     """
     If stop_reason indicates silence → return ('Not Speaking','N/A','N/A').
@@ -62,6 +73,10 @@ def analyze_audio(recording, stop_reason: str):
     """
     # ✅ Your requested rule:
     if isinstance(stop_reason, str) and stop_reason.lower().startswith("silent"):
+        return "Not Speaking", "N/A", "N/A"
+
+    # Guard: must be a numpy array
+    if not isinstance(recording, np.ndarray):
         return "Not Speaking", "N/A", "N/A"
 
     # Convert audio to mono int16
