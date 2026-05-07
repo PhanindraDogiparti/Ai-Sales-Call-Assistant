@@ -42,7 +42,7 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# THIS IS THE FIX
+# FIX
 creds_dict = st.secrets["GOOGLE_CREDENTIALS"]
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
