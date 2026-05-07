@@ -382,31 +382,115 @@ if tab == "Record":
                         st.caption("_Recommendations will appear after a call with detected speech._")
 
         # ==== WebRTC Recording ====
+        # ==== WebRTC Recording ====
         st.subheader("🎙️ Live Voice Recording (WebRTC)")
 
-        ctx = webrtc_streamer(
-            key="audio",
+
+        class AudioProcessor(AudioProcessorBase):
+
+            def __init__(self):
+                self.frames = []
+
+            def recv_audio(self, frame):
+
+                audio = frame.to_ndarray()
+
+                self.frames.append(audio)
+
+                return frame
+
+
+        webrtc_ctx = webrtc_streamer(
+            key="speech",
             audio_processor_factory=AudioProcessor,
-            media_stream_constraints={"audio": True, "video": False},
+            media_stream_constraints={
+                "audio": True,
+                "video": False,
+            },
+            audio_receiver_size=1024,
         )
 
-        if ctx.audio_processor:
+
+        if webrtc_ctx.audio_processor:
+
             st.success("🎙️ Recording... Speak now")
 
             if st.button("🛑 Stop & Analyze", use_container_width=True):
-                processor = ctx.audio_processor
-                if processor is not None and hasattr(processor, "frames") and len(processor.frames) > 0:
+
+                processor = webrtc_ctx.audio_processor
+
+                if len(processor.frames) > 0:
+
                     try:
-                        audio_np = np.concatenate(processor.frames, axis=-1)  # (C, total_samples)
-                        audio_np = audio_np.mean(axis=0) if audio_np.ndim == 2 else audio_np  # mono
+
+                        # Combine frames
+                        audio_np = np.concatenate(
+                            processor.frames,
+                            axis=1
+                        )
+
+                        # Stereo → mono
+                        audio_np = audio_np.mean(axis=0)
+
+                        # Convert float32
                         audio_np = audio_np.astype(np.float32)
+
+                        # Save audio
                         st.session_state["audio"] = audio_np
-                        st.session_state["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                        st.success("✅ Audio captured successfully")
+
+                        stop_reason = "manual"
+
+                        # Analyze audio
+                        transcript, sentiment_label, emotion_label = analyze_audio(
+                            st.session_state["audio"],
+                            stop_reason
+                        )
+
+                        # Store results
+                        st.session_state["transcript"] = transcript
+                        st.session_state["sentiment"] = sentiment_label
+                        st.session_state["emotion"] = emotion_label
+
+                        st.success("✅ Analysis Complete")
+
                     except Exception as e:
-                        st.error(f"Audio processing error: {e}")
+
+                        st.error(f"Processing error: {e}")
+
                 else:
+
                     st.warning("⚠️ No audio recorded")
+
+
+        # Display Results
+        st.markdown("### Transcript")
+
+        st.write(
+            st.session_state.get(
+                "transcript",
+                "No transcript yet"
+            )
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### Sentiment")
+            st.write(
+                st.session_state.get(
+                    "sentiment",
+                    "N/A"
+                )
+            )
+
+        with col2:
+            st.markdown("### Emotion")
+            st.write(
+                st.session_state.get(
+                    "emotion",
+                    "N/A"
+                )
+            )
 
         # Auto-analyze after audio captured
         if "audio" in st.session_state and st.session_state.get("transcript") is None:
