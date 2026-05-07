@@ -13,4 +13,5 @@
 !.streamlit/config.toml
 !requirements.txt
 !assets/
+!runtime.txt
 
