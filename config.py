@@ -22,6 +22,7 @@
 
 
 
+import os
 import streamlit as st
 from groq import Groq
 import gspread
@@ -44,7 +45,12 @@ scope = [
 
 creds_dict = dict(st.secrets["GOOGLE_CREDENTIALS"])
 
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(
+    creds_dict,
+    scope
+)
+
 client_gs = gspread.authorize(creds)
+
 sheet = client_gs.open("AI Sales Call Assistant").sheet1
 
