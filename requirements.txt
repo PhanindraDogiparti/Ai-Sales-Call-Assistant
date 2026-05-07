@@ -9,9 +9,10 @@
 # streamlit-webrtc
 
 streamlit==1.31.1
-streamlit-webrtc==0.47.1
+streamlit-webrtc==0.47.7
 aiortc==1.5.0
-av==9.2.0
+av==11.0.0
+
 pandas
 numpy
 groq
