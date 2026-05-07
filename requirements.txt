@@ -17,4 +17,3 @@ groq
 SpeechRecognition
 gspread
 oauth2client
-sounddevice
