@@ -1,19 +1,11 @@
-# streamlit
-# pandas
-# numpy
-# groq
-# SpeechRecognition
-# gspread
-# oauth2client
-# # sounddevice
-# streamlit-webrtc
-
-streamlit==1.31.1
-streamlit-webrtc==0.47.7
-av==12.3.0
+streamlit
 pandas
 numpy
 groq
 SpeechRecognition
 gspread
 oauth2client
+# sounddevice
+streamlit-webrtc
+
+
