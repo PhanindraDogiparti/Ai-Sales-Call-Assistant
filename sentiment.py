@@ -4,14 +4,30 @@ import wave
 import re
 from config import client, SAMPLE_RATE, CHANNELS
 
-def _to_mono_int16(x: np.ndarray) -> np.ndarray:
-    """Ensure (N,) mono int16 PCM from float arrays (N,), (N,1), or (N,C)."""
-    if x is None or len(x) == 0:
+# def _to_mono_int16(x: np.ndarray) -> np.ndarray:
+#     """Ensure (N,) mono int16 PCM from float arrays (N,), (N,1), or (N,C)."""
+#     if x is None or len(x) == 0:
+#         return np.array([], dtype=np.int16)
+#     arr = np.asarray(x)
+#     if arr.ndim == 2:
+#         arr = arr.mean(axis=1)  # downmix to mono
+#     arr = arr.astype(np.float32, copy=False)
+#     peak = np.max(np.abs(arr)) if arr.size else 0.0
+#     if peak > 1.0:
+#         arr = arr / peak
+#     return np.clip(arr * 32767.0, -32768, 32767).astype(np.int16)
+
+def _to_mono_int16(x) -> np.ndarray:
+    if x is None:
         return np.array([], dtype=np.int16)
-    arr = np.asarray(x)
+    arr = np.asarray(x, dtype=np.float32)
+    if arr.size == 0:
+        return np.array([], dtype=np.int16)
     if arr.ndim == 2:
-        arr = arr.mean(axis=1)  # downmix to mono
-    arr = arr.astype(np.float32, copy=False)
+        if arr.shape[0] <= arr.shape[1]:
+            arr = arr.mean(axis=0)  # WebRTC: (C, N)
+        else:
+            arr = arr.mean(axis=1)  # Old mic: (N, C)
     peak = np.max(np.abs(arr)) if arr.size else 0.0
     if peak > 1.0:
         arr = arr / peak
