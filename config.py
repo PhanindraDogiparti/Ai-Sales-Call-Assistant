@@ -22,22 +22,21 @@
 
 
 
-import os
 import streamlit as st
 from groq import Groq
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# ✅ Groq setup
+# Groq setup
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# 🎤 Audio settings
+# Audio settings
 SAMPLE_RATE = 16000
 CHANNELS = 1
 SILENCE_LIMIT = 5
 CSV_FILE = "groq_transcripts.csv"
 
-# 🔹 Google Sheets setup
+# Google Sheets setup
 scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
