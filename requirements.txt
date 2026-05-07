@@ -8,12 +8,13 @@
 # # sounddevice
 # streamlit-webrtc
 
-streamlit==1.37.1
-streamlit-webrtc==0.47.7
-av==11.0.0
-pandas
-numpy
-groq
-SpeechRecognition
-gspread
-oauth2client
+streamlit==1.31.1
+streamlit-webrtc==0.47.1
+aiortc==1.6.0
+av==10.0.0
+pandas==2.2.2
+numpy==1.26.4
+groq==0.9.0
+SpeechRecognition==3.10.4
+gspread==6.1.2
+oauth2client==4.1.3
