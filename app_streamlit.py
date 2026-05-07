@@ -13,11 +13,8 @@ from config import client as groq_client, sheet
 from config import SAMPLE_RATE, CHANNELS, SILENCE_LIMIT, sheet, client
 
 # ---------------- PAGE SETUP ----------------
-# st.set_page_config(page_title="AI Speech Analysis Studio", page_icon="🎙️", layout="wide")
-# Clear bad audio state on every rerun
-if "audio" in st.session_state and not isinstance(st.session_state["audio"], np.ndarray):
-    del st.session_state["audio"]
-    del st.session_state["transcript"]
+st.set_page_config(page_title="AI Speech Analysis Studio", page_icon="🎙️", layout="wide")
+
 # ---------------- CSS ----------------
 st.markdown(""" 
 <style>
