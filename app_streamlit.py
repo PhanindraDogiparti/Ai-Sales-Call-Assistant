@@ -5,8 +5,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
-
+from speech_to_text import calibrate_silence, record_until_silence
 from sentiment import analyze_audio
 from google_sheets import ensure_headers, save_to_sheets
 from config import client as groq_client, sheet
@@ -73,8 +72,13 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
 # ---------------- Helpers ----------------
+def _background_capture(threshold, holder, stop_event):
+    audio_list, stop_reason = record_until_silence(threshold, stop_event=stop_event)
+    holder["audio_list"] = audio_list
+    holder["stop_reason"] = stop_reason
+    holder["done"] = True
+
 def refresh_animation(flag_key="_do_refresh"):
     if st.session_state.get(flag_key):
         with st.status("Refreshing data…", expanded=False) as s:
@@ -112,7 +116,7 @@ SUMMARIES_SHEET_NAME = "Summaries"
 
 CRM_HEADERS = [
     "CustomerName", "Company", "Industry",
-    "Budget", "InterestLevel", "Email", "Phone", "RecommendedProducts"
+    "Budget", "InterestLevel", "Email", "Phone","RecommendedProducts"
 ]
 
 SUMMARIES_HEADERS = [
@@ -135,22 +139,11 @@ PRODUCT_PRICE_MAP = {
     "IoT Sensors": 5000,
     "Yield Prediction AI": 7000
 }
-
-class AudioProcessor(AudioProcessorBase):
-    def __init__(self):
-        self.frames = []
-
-    def recv(self, frame):
-        audio = frame.to_ndarray()
-        self.frames.append(audio)
-        return frame
-
-
-# ---- LLM Summary generator ----
-def generate_llm_summary(transcript: str, customer: dict, sentiment: str, emotion: str) -> tuple:
+# ---- LLM Summary generator (safe, JSON-only) ----
+def generate_llm_summary(transcript: str, customer: dict, sentiment: str, emotion: str) -> tuple[str, str]:
     """Return (summary, action_items_str). If transcript is empty, return a silent-call message."""
     if not isinstance(transcript, str) or not transcript.strip():
-        return ("Not Speaking. No summary generated.", "")
+        return ("User was not speaking. No recommendations available.", "")
 
     name = customer.get("CustomerName", "") if customer else ""
     industry = customer.get("Industry", "") if customer else ""
@@ -188,26 +181,37 @@ def generate_llm_summary(transcript: str, customer: dict, sentiment: str, emotio
             if m:
                 data = json.loads(m.group(0))
 
-        summary = str(data.get("summary", "")).strip() or "Summary unavailable."
+        summary = (str(data.get("summary", "")) or "Summary unavailable.").strip()
         items = data.get("action_items", [])
         if not isinstance(items, list):
             items = [str(items)]
-        ai = "; ".join([str(x) for x in items if str(x).strip()])[:400]
+        ai = "; ".join([str(x).strip() for x in items if str(x).strip()])[:400]
         return (summary, ai)
     except Exception as e:
         return (f"Summary error: {e}", "")
 
 
 # ---- Save a row to the 'Summaries' sheet ----
-def save_summary_row(timestamp: str, customer: dict, summary: str, action_items: str,
-                     sentiment: str, emotion: str, ranked_products: list):
+def save_summary_row(timestamp: str,
+                     customer: dict,
+                     summary: str,
+                     action_items: str,
+                     sentiment: str,
+                     emotion: str,
+                     ranked_products: list):
+    """
+    Writes one row to the Summaries sheet. If no speech was detected, writes a clean
+    fallback row with NAs and no product recommendations.
+    """
     ws = ensure_summaries_ready()
 
+    # Determine if the call had speech using your existing stop_reason + transcript
     stop_reason = (st.session_state.get("stop_reason", "") or "").lower()
     transcript_txt = (st.session_state.get("transcript", "") or "").strip()
     no_speech = (not transcript_txt) or ("no speech" in stop_reason) or stop_reason.startswith("silent")
 
     if no_speech:
+        # Fallback (no recommendations saved)
         if not summary:
             summary = "User was not speaking. No recommendations available."
         if not action_items:
@@ -215,10 +219,16 @@ def save_summary_row(timestamp: str, customer: dict, summary: str, action_items:
         row = [
             timestamp,
             (customer or {}).get("Phone", "NA"),
-            summary, action_items,
-            "NA", "NA", "NA", "NA", "NA"
+            summary,
+            action_items,
+            "NA",
+            "NA",
+            "NA",
+            "NA",
+            "NA"
         ]
     else:
+        # Normal save with products + prices (if any)
         products = ranked_products if ranked_products else []
         products_str = ", ".join(products) if products else "NA"
         prices_str = (
@@ -238,6 +248,7 @@ def save_summary_row(timestamp: str, customer: dict, summary: str, action_items:
         ]
 
     ws.append_row(row)
+
 
 
 # ---- Sheet Helpers ----
@@ -303,7 +314,57 @@ def rank_products(products, sentiment: str):
             else: hard.append(p)
         return soft + hard if soft else products
     return products
+def generate_llm_summary(transcript: str, customer: dict, sentiment: str, emotion: str) -> tuple[str, str]:
+    """Return (summary, action_items_str). If transcript is empty, return a silent-call message."""
+    if not isinstance(transcript, str) or not transcript.strip():
+        return ("Not Speaking. No summary generated.", "")
 
+    name = customer.get("CustomerName", "") if customer else ""
+    industry = customer.get("Industry", "") if customer else ""
+
+    sys = (
+        "You are a sales assistant. Write a concise post-call summary and clear action items.\n"
+        "- Keep summary <= 120 words.\n"
+        "- Use simple bullet points in Action Items (2-4 items).\n"
+        "- Avoid guessing unknown details.\n"
+        "Return JSON only."
+    )
+    user = (
+        f"Customer: {name}\n"
+        f"Industry: {industry}\n"
+        f"Sentiment: {sentiment}\n"
+        f"Emotion: {emotion}\n"
+        f"Transcript:\n{transcript}\n\n"
+        "Return JSON with keys 'summary' and 'action_items' (list of strings)."
+    )
+
+    try:
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "system", "content": sys},
+                      {"role": "user", "content": user}],
+            temperature=0.2,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        import json, re as _re
+        data = {}
+        try:
+            data = json.loads(content)
+        except Exception:
+            m = _re.search(r"\{.*\}", content, flags=_re.S)
+            if m:
+                data = json.loads(m.group(0))
+
+        summary = str(data.get("summary", "")).strip() or "Summary unavailable."
+        items = data.get("action_items", [])
+        if not isinstance(items, list):
+            items = [str(items)]
+        ai = "; ".join([str(x) for x in items if str(x).strip()])[:400]
+        return (summary, ai)
+    except Exception as e:
+        return (f"Summary error: {e}", "")
+
+# ---- Objection Handling Prompts ----
 def generate_objection_prompts(sentiment: str) -> list:
     if not isinstance(sentiment, str): return []
     s = sentiment.lower()
@@ -319,18 +380,18 @@ def generate_objection_prompts(sentiment: str) -> list:
             "Would you like a quick demo to explore options?",
             "Is there any additional information you need before deciding?"
         ]
-    else:
+    else:  # Positive or unknown
         return [
             "Great! Would you like me to share the pricing details?",
             "Should we schedule a follow-up to finalize?",
             "Can I connect you with our support team for onboarding?"
         ]
 
-
 # ---------------- RECORD TAB ----------------
 if tab == "Record":
     left, right = st.columns(2)
 
+    # --- Left: Recorder + CRM ---
     with left:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Voice Recorder")
@@ -340,8 +401,6 @@ if tab == "Record":
 
         # ==== CRM: Customer picker + Profile ====
         crm_df = load_crm_df()
-        selected_customer = {}
-
         if crm_df.empty:
             st.info("Add some rows to the **CRM** sheet to enable real-time profile & recommendations.")
         else:
@@ -356,6 +415,7 @@ if tab == "Record":
             )
             st.session_state["selected_customer_label"] = selected_label
 
+            selected_customer = {}
             if selected_label and selected_label != "— Select —":
                 email_key = id_map.get(selected_label, "")
                 selected_customer = get_customer_by_email(crm_df, email_key)
@@ -370,6 +430,7 @@ if tab == "Record":
                     colB.metric("Email", selected_customer.get("Email","—"))
                     colC.metric("Phone", selected_customer.get("Phone","—"))
 
+                    # --- Recommended Products (AFTER call with speech) ---
                     ranked = st.session_state.get("ranked_products", [])
                     if st.session_state.get("call_had_speech") and ranked:
                         st.markdown("### 🧩 Recommended Products")
@@ -381,136 +442,99 @@ if tab == "Record":
                     else:
                         st.caption("_Recommendations will appear after a call with detected speech._")
 
-        # ==== WebRTC Recording ====
-        # ==== WebRTC Recording ====
-        st.subheader("🎙️ Live Voice Recording (WebRTC)")
+        # ==== Recording state ====
+        st.session_state.setdefault("rec_thread", None)
+        st.session_state.setdefault("rec_holder", {})
+        st.session_state.setdefault("rec_stop", None)
+        st.session_state.setdefault("rec_start_ts", None)
+        st.session_state.setdefault("is_recording", False)
 
+        # Toggle button
+        label = "⏹️ Stop Recording" if st.session_state.is_recording else "🔴 Start Recording"
+        toggled = st.button(label, use_container_width=True)
 
-        class AudioProcessor(AudioProcessorBase):
+        if toggled:
+            if not st.session_state.is_recording:
+                # reset old results
+                for k in ("audio","transcript","sentiment","emotion","stop_reason",
+                          "timestamp","ranked_products","call_had_speech"):
+                    st.session_state.pop(k, None)
+                st.session_state["transcript"] = None
 
-            def __init__(self):
-                self.frames = []
+                with st.status("Calibrating baseline noise…", expanded=True) as s:
+                    thr = calibrate_silence()
+                    s.write(f"Calibrated threshold = {thr:.6f}")
+                    s.update(label="Listening… Speak now.")
 
-            def recv_audio(self, frame):
+                holder = {"done": False}
+                stop_event = threading.Event()
+                t = threading.Thread(target=_background_capture, args=(thr, holder, stop_event), daemon=True)
+                t.start()
 
-                audio = frame.to_ndarray()
+                st.session_state.rec_holder = holder
+                st.session_state.rec_stop = stop_event
+                st.session_state.rec_thread = t
+                st.session_state.rec_start_ts = time.time()
+                st.session_state.is_recording = True
+            else:
+                if st.session_state.rec_stop is not None:
+                    st.session_state.rec_stop.set()
 
-                self.frames.append(audio)
+        # Timer while recording
+        if st.session_state.is_recording and st.session_state.rec_thread and st.session_state.rec_thread.is_alive():
+            elapsed = int(time.time() - (st.session_state.rec_start_ts or time.time()))
+            st.markdown(f"**⏱️ Recording:** {elapsed:02d} sec")
+            time.sleep(1)
+            st.rerun()
 
-                return frame
+        # After recording stops
+        if st.session_state.rec_thread is not None and not st.session_state.rec_thread.is_alive():
+            holder = st.session_state.rec_holder or {}
+            if holder.get("done") and "audio" not in st.session_state:
+                audio_list = holder.get("audio_list") or []
+                stop_reason = holder.get("stop_reason", "")
+                st.session_state["stop_reason"] = stop_reason
 
+                if stop_reason.lower().startswith("silent") and len(audio_list) > SILENCE_LIMIT:
+                    audio_list = audio_list[:len(audio_list)-SILENCE_LIMIT]
 
-        webrtc_ctx = webrtc_streamer(
-            key="speech",
-            audio_processor_factory=AudioProcessor,
-            media_stream_constraints={
-                "audio": True,
-                "video": False,
-            },
-            audio_receiver_size=1024,
-        )
-
-
-        if webrtc_ctx.audio_processor:
-
-            st.success("🎙️ Recording... Speak now")
-
-            if st.button("🛑 Stop & Analyze", use_container_width=True):
-
-                processor = webrtc_ctx.audio_processor
-
-                if len(processor.frames) > 0:
-
-                    try:
-
-                        # Combine frames
-                        audio_np = np.concatenate(
-                            processor.frames,
-                            axis=1
-                        )
-
-                        # Stereo → mono
-                        audio_np = audio_np.mean(axis=0)
-
-                        # Convert float32
-                        audio_np = audio_np.astype(np.float32)
-
-                        # Save audio
-                        st.session_state["audio"] = audio_np
-
-                        stop_reason = "manual"
-
-                        # Analyze audio
-                        transcript, sentiment_label, emotion_label = analyze_audio(
-                            st.session_state["audio"],
-                            stop_reason
-                        )
-
-                        # Store results
-                        st.session_state["transcript"] = transcript
-                        st.session_state["sentiment"] = sentiment_label
-                        st.session_state["emotion"] = emotion_label
-
-                        st.success("✅ Analysis Complete")
-
-                    except Exception as e:
-
-                        st.error(f"Processing error: {e}")
-
+                if audio_list:
+                    merged = np.concatenate(audio_list, axis=0)
+                    st.session_state["audio"] = merged
+                    st.session_state["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                    st.toast(f"Captured {merged.shape[0]/SAMPLE_RATE:.1f} sec", icon="🎧")
                 else:
+                    st.warning("No audio captured.")
 
-                    st.warning("⚠️ No audio recorded")
+            # reset state
+            st.session_state.rec_thread = None
+            st.session_state.rec_stop = None
+            st.session_state.rec_holder = {}
+            st.session_state.rec_start_ts = None
+            st.session_state.is_recording = False
+            st.rerun()
 
-
-        # Display Results
-        st.markdown("### Transcript")
-
-        st.write(
-            st.session_state.get(
-                "transcript",
-                "No transcript yet"
-            )
-        )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("### Sentiment")
-            st.write(
-                st.session_state.get(
-                    "sentiment",
-                    "N/A"
-                )
-            )
-
-        with col2:
-            st.markdown("### Emotion")
-            st.write(
-                st.session_state.get(
-                    "emotion",
-                    "N/A"
-                )
-            )
-
-        # Auto-analyze after audio captured
+        # Auto-analyze
         if "audio" in st.session_state and st.session_state.get("transcript") is None:
             with st.spinner("Analyzing…"):
                 transcript, sentiment_label, emotion_label = analyze_audio(
                     st.session_state["audio"],
-                    st.session_state.get("stop_reason", "")
+                    st.session_state.get("stop_reason","")
                 )
             st.session_state["transcript"] = transcript
             st.session_state["sentiment"] = sentiment_label
             st.session_state["emotion"] = emotion_label
 
-            stop_reason = (st.session_state.get("stop_reason", "") or "").lower()
+            # Detect if speech happened
+            stop_reason = (st.session_state.get("stop_reason","") or "").lower()
             call_had_speech = bool(transcript and transcript.strip()) and not (
                 "no speech" in stop_reason or stop_reason.startswith("silent")
             )
             st.session_state["call_had_speech"] = call_had_speech
 
+            # compute recommendations only when speech detected & customer selected
             if call_had_speech and selected_customer:
-                base_products = parse_products(selected_customer.get("RecommendedProducts", ""))
+                base_products = parse_products(selected_customer.get("RecommendedProducts",""))
                 ranked = rank_products(base_products, sentiment_label)
                 st.session_state["ranked_products"] = ranked
             else:
@@ -534,26 +558,28 @@ if tab == "Record":
         a, b = st.columns(2)
         with a:
             st.markdown("**Sentiment**")
-            sent = st.session_state.get("sentiment", "—")
+            sent = st.session_state.get("sentiment","—")
             css = "neu"
-            if isinstance(sent, str):
+            if isinstance(sent,str):
                 s = sent.strip().lower()
                 if "pos" in s: css = "pos"
                 elif "neg" in s: css = "neg"
             st.markdown(f'<span class="badge {css}">{sent}</span>', unsafe_allow_html=True)
         with b:
             st.markdown("**Emotion**")
-            emo = st.session_state.get("emotion", "—")
+            emo = st.session_state.get("emotion","—")
             st.markdown(f'<span class="badge emo">{emo}</span>', unsafe_allow_html=True)
 
+        # Suggested prompts
         st.markdown("**Suggested Objection Handling Prompts**")
-        prompts = generate_objection_prompts(st.session_state.get("sentiment", ""))
+        prompts = generate_objection_prompts(st.session_state.get("sentiment",""))
         if prompts:
             for p in prompts:
                 st.write(f"• {p}")
         else:
             st.write("No suggestions available.")
 
+        # Save to Sheets
         save_summary_too = st.checkbox("Also save post-call summary to 'Summaries'", value=True)
         if st.button("💾 Save to Google Sheets", use_container_width=True):
             ts = st.session_state.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -561,17 +587,17 @@ if tab == "Record":
                 ensure_headers()
                 save_to_sheets(
                     ts,
-                    st.session_state.get("transcript", ""),
-                    st.session_state.get("sentiment", ""),
-                    st.session_state.get("emotion", ""),
-                    st.session_state.get("stop_reason", "")
+                    st.session_state.get("transcript",""),
+                    st.session_state.get("sentiment",""),
+                    st.session_state.get("emotion",""),
+                    st.session_state.get("stop_reason","")
                 )
                 st.success("Saved to Google Sheets.")
 
                 if save_summary_too:
-                    transcript_val = st.session_state.get("transcript", "").strip()
-                    sentiment_val = st.session_state.get("sentiment", "")
-                    emotion_val = st.session_state.get("emotion", "")
+                    transcript_val = st.session_state.get("transcript","").strip()
+                    sentiment_val = st.session_state.get("sentiment","")
+                    emotion_val = st.session_state.get("emotion","")
 
                     if st.session_state.get("call_had_speech"):
                         summary, action_items = generate_llm_summary(transcript_val, selected_customer, sentiment_val, emotion_val)
@@ -586,14 +612,14 @@ if tab == "Record":
             except Exception as e:
                 st.error(f"Save failed: {e}")
 
-        stop_reason = st.session_state.get("stop_reason", "")
+        stop_reason = st.session_state.get("stop_reason","")
         if stop_reason:
             st.markdown(f'<div class="small">Stop Reason: <b>{stop_reason}</b></div>', unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------- HISTORY TAB ----------------
-elif tab == "History":
+if tab == "History":
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📜 Call History")
     st.caption("All saved calls with transcripts, sentiment, and emotion.")
@@ -604,6 +630,7 @@ elif tab == "History":
             st.session_state["_refresh_history"] = True
             st.rerun()
 
+    # Small refresh animation
     if st.session_state.get("_refresh_history"):
         with st.status("Refreshing call history…", expanded=False) as s:
             for dots in ["", ".", "..", "..."]:
@@ -614,17 +641,35 @@ elif tab == "History":
         st.rerun()
 
     try:
+        # Pull all values from main sheet
         values = sheet.get_all_values()
         headers = values[0] if values else []
         rows = values[1:] if values and len(values) > 1 else []
 
         if rows:
+            import pandas as pd
             df = pd.DataFrame(rows, columns=headers)
+
+            # Only keep key columns if available
             key_cols = [c for c in ["Timestamp", "Transcript", "Sentiment", "Emotion", "StopReason"] if c in df.columns]
             df = df[key_cols] if key_cols else df
-            st.dataframe(df, use_container_width=True, height=400)
+
+            # Display table
+            st.dataframe(
+                df,
+                use_container_width=True,
+                height=400,
+            )
+
+            # Download CSV
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ Download CSV", csv, "call_history.csv", "text/csv", use_container_width=True)
+            st.download_button(
+                "⬇️ Download CSV",
+                csv,
+                "call_history.csv",
+                "text/csv",
+                use_container_width=True
+            )
         else:
             st.info("No call history found yet. Record and save a call to see data here.")
     except Exception as e:
@@ -633,9 +678,10 @@ elif tab == "History":
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------- ANALYTICS TAB ----------------
-elif tab == "Analytics":
+if tab == "Analytics":
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Analytics")
+    
 
     col_refresh, _ = st.columns([1, 6])
     with col_refresh:
@@ -660,9 +706,11 @@ elif tab == "Analytics":
         st.metric("Total Recordings", total)
 
         from collections import Counter
+        import pandas as pd
 
         c1, c2 = st.columns(2)
 
+        # --- Sentiment (raw) ---
         with c1:
             st.markdown("**Sentiment Distribution**")
             if i_sent is not None:
@@ -676,6 +724,7 @@ elif tab == "Analytics":
             else:
                 st.warning("No Sentiment column in sheet.")
 
+        # --- Emotion (raw) ---
         with c2:
             st.markdown("**Emotion Distribution**")
             if i_emo is not None:
@@ -722,6 +771,7 @@ elif tab == "Purchasing History":
             if matched:
                 st.success(f"Found {len(matched)} past purchases for {email_input}")
 
+                # ---- Total Spend ----
                 total_spend = 0
                 for m in matched:
                     if "ProductPrice" in m and m["ProductPrice"]:
@@ -735,13 +785,17 @@ elif tab == "Purchasing History":
                             pass
                 st.metric("Total Spend", f"${total_spend:,.2f}")
 
+                # ✅ Convert to DataFrame and remove Summary + ActionItems
                 df_display = pd.DataFrame(matched)
                 cols_to_drop = [c for c in ["Summary", "ActionItems"] if c in df_display.columns]
                 df_display = df_display.drop(columns=cols_to_drop)
+
+                # 📊 Show cleaned table
                 st.dataframe(df_display, use_container_width=True, height=350)
             else:
                 st.info("No purchase history found for this customer.")
 
+            # --- Recommendations ---
             if customer:
                 already_bought = []
                 for m in matched:
@@ -752,6 +806,7 @@ elif tab == "Purchasing History":
                 base_products = parse_products(customer.get("RecommendedProducts", ""))
                 current_sentiment = st.session_state.get("sentiment", "")
                 ranked = rank_products(base_products, current_sentiment)
+
                 recos = [p for p in ranked if p not in already_bought]
 
                 st.markdown("### 🎯 Recommended Next Products")
@@ -763,17 +818,27 @@ elif tab == "Purchasing History":
                         with cols[idx]:
                             st.markdown(
                                 f"""
-                                <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;
-                                    padding:14px;text-align:center;box-shadow:0 4px 10px rgba(0,0,0,0.05);">
-                                    <div style="font-size:16px;font-weight:600;margin-bottom:6px;">{p}</div>
-                                    <div style="color:#10b981;font-weight:700;margin-bottom:8px;">💲 {price_str}</div>
+                                <div style="
+                                    background: #fff;
+                                    border: 1px solid #e5e7eb;
+                                    border-radius: 12px;
+                                    padding: 14px;
+                                    text-align: center;
+                                    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+                                ">
+                                    <div style="font-size:16px; font-weight:600; margin-bottom:6px;">
+                                        {p}
+                                    </div>
+                                    <div style="color:#10b981; font-weight:700; margin-bottom:8px;">
+                                        💲 {price_str}
+                                    </div>
                                 </div>
                                 """,
                                 unsafe_allow_html=True
                             )
                 else:
+                    # --- AI fallback with only ProductName + Price ---
                     try:
-                        import json, re
                         prompt = f"""
                         You are a sales assistant. The customer profile is:
                         Name: {customer.get("CustomerName")}
@@ -798,7 +863,10 @@ elif tab == "Purchasing History":
                             ],
                             temperature=0.4
                         )
+                        import json, re
                         content = resp.choices[0].message.content.strip()
+
+                        # ✅ Extract only valid JSON array
                         match = re.search(r"\[.*\]", content, flags=re.S)
                         products_ai = json.loads(match.group(0)) if match else []
 
@@ -812,10 +880,20 @@ elif tab == "Purchasing History":
                                 with cols[idx]:
                                     st.markdown(
                                         f"""
-                                        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;
-                                            padding:14px;text-align:center;box-shadow:0 4px 10px rgba(0,0,0,0.05);">
-                                            <div style="font-size:16px;font-weight:600;margin-bottom:6px;">{name}</div>
-                                            <div style="color:#10b981;font-weight:700;margin-bottom:8px;">💲 {price_str}</div>
+                                        <div style="
+                                            background: #fff;
+                                            border: 1px solid #e5e7eb;
+                                            border-radius: 12px;
+                                            padding: 14px;
+                                            text-align: center;
+                                            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+                                        ">
+                                            <div style="font-size:16px; font-weight:600; margin-bottom:6px;">
+                                                {name}
+                                            </div>
+                                            <div style="color:#10b981; font-weight:700; margin-bottom:8px;">
+                                                💲 {price_str}
+                                            </div>
                                         </div>
                                         """,
                                         unsafe_allow_html=True
@@ -835,15 +913,17 @@ elif tab == "Agent Summary":
     import textwrap
     from groq import Groq
 
+    # 🧠 Auto logout if user switches tab
     if "last_tab" in st.session_state and st.session_state["last_tab"] != tab:
         if st.session_state["last_tab"] == "Agent Summary":
-            st.session_state["agent_logged_in"] = False
+            st.session_state["agent_logged_in"] = False  # logout only when leaving agent tab
     st.session_state["last_tab"] = tab
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("🧠 Post-Call Summaries (Agent Only)")
     st.caption("Private view for agents. Enter customer phone number to view their summaries.")
 
+    # ✅ Simple agent login
     if not st.session_state.get("agent_logged_in", False):
         with st.form("login_form"):
             username = st.text_input("👤 Agent Username")
@@ -862,10 +942,12 @@ elif tab == "Agent Summary":
     else:
         st.success("Welcome Agent 👋")
 
+    # 🚪 Manual Logout
     if st.button("🚪 Logout"):
         st.session_state["agent_logged_in"] = False
         st.rerun()
 
+    # 🔍 Input for phone number
     customer_filter = st.text_input("📞 Enter Customer Phone Number")
 
     if not customer_filter.strip():
@@ -873,6 +955,7 @@ elif tab == "Agent Summary":
         st.stop()
 
     try:
+        # ✅ Load data from Summaries sheet
         ws = ensure_summaries_ready()
         values = ws.get_all_values()
         if not values or len(values) < 2:
@@ -887,6 +970,7 @@ elif tab == "Agent Summary":
             st.error("❌ 'CustomerPhone' column not found in sheet.")
             st.stop()
 
+        # 🔍 Filter by phone
         mask = df["CustomerPhone"].astype(str).str.contains(customer_filter, case=False, na=False, regex=False)
         filtered = df[mask]
 
@@ -895,14 +979,21 @@ elif tab == "Agent Summary":
         else:
             st.info(f"📋 Showing {len(filtered)} summaries for **{customer_filter}**")
 
+            # 🧠 Collect all summaries
             all_summaries_text = ""
             for _, row in filtered.iterrows():
                 st.markdown(
                     f"""
-                    <div style="background:#fff;border:1px solid #E5E7EB;border-radius:14px;
-                        padding:16px 20px;margin-bottom:14px;box-shadow:0 4px 10px rgba(0,0,0,0.05);">
-                        <h4 style="margin:0;color:#111827;">🕒 {row.get('Timestamp', '')}</h4>
-                        <p style="color:#6B7280;margin:2px 0 8px;">📞 <b>{row.get('CustomerPhone','NA')}</b></p>
+                    <div style="
+                        background:#fff;
+                        border:1px solid #E5E7EB;
+                        border-radius:14px;
+                        padding:16px 20px;
+                        margin-bottom:14px;
+                        box-shadow:0 4px 10px rgba(0,0,0,0.05);
+                    ">
+                        <h4 style="margin:0; color:#111827;">🕒 {row.get('Timestamp', '')}</h4>
+                        <p style="color:#6B7280; margin:2px 0 8px;">📞 <b>{row.get('CustomerPhone','NA')}</b></p>
                         <p><b>📝 Summary:</b> {row.get('Summary','')}</p>
                         <p><b>🎯 Action Items:</b> {row.get('ActionItems','')}</p>
                         <p><b>😃 Sentiment:</b> {row.get('Sentiment','N/A')}</p>
@@ -914,16 +1005,18 @@ elif tab == "Agent Summary":
                     """,
                     unsafe_allow_html=True
                 )
+
                 all_summaries_text += f"Summary: {row.get('Summary','')}\nAction Items: {row.get('ActionItems','')}\n\n"
 
+            # 🧠 AI Summary Button
             if st.button("🤖 Generate AI Summary"):
                 try:
-                    groq_client_local = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                     with st.spinner("Generating AI summary... ⏳"):
                         prompt = f"""
                         You are an assistant summarizing multiple call summaries into a structured post-call report.
                         Combine all details below into formatted sections:
-                        💬 Overall Sentiment
+                        💬 Overall Sentiment**
                         🎯 Customer Intent
                         🧩 Key Topics
                         ⚠️ Objections
@@ -934,22 +1027,24 @@ elif tab == "Agent Summary":
                         Input Summaries:
                         {all_summaries_text}
                         """
-                        response = groq_client_local.chat.completions.create(
+
+                        response = client.chat.completions.create(
                             model="llama-3.3-70b-versatile",
                             messages=[{"role": "user", "content": prompt}],
                         )
+
                         ai_summary = response.choices[0].message.content.strip()
 
                     st.success("✅ AI Summary Generated")
-                    formatted_summary = ai_summary.replace("\n", "<br>")
                     st.markdown(
                         f"""
-                        <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:16px;">
-                        {formatted_summary}
+                        <div style="background:#F9FAFB; border:1px solid #E5E7EB; border-radius:10px; padding:16px;">
+                        {ai_summary.replace("\n", "<br>")}
                         </div>
                         """,
                         unsafe_allow_html=True,
                     )
+
                 except Exception as e:
                     st.error(f"AI Summary generation failed: {e}")
 
@@ -957,3 +1052,8 @@ elif tab == "Agent Summary":
         st.error(f"⚠️ Error loading summaries: {e}")
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+
+
+
