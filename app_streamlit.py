@@ -394,13 +394,17 @@ if tab == "Record":
             st.success("🎙️ Recording... Speak now")
 
             if st.button("🛑 Stop & Analyze", use_container_width=True):
-                audio_frames = ctx.audio_processor.frames
-
-                if len(audio_frames) > 0:
-                    audio_np = np.concatenate(audio_frames, axis=1)
-                    st.session_state["audio"] = audio_np
-                    st.session_state["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                    st.success("✅ Audio captured successfully")
+                processor = ctx.audio_processor
+                if processor is not None and hasattr(processor, "frames") and len(processor.frames) > 0:
+                    try:
+                        audio_np = np.concatenate(processor.frames, axis=-1)  # (C, total_samples)
+                        audio_np = audio_np.mean(axis=0) if audio_np.ndim == 2 else audio_np  # mono
+                        audio_np = audio_np.astype(np.float32)
+                        st.session_state["audio"] = audio_np
+                        st.session_state["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                        st.success("✅ Audio captured successfully")
+                    except Exception as e:
+                        st.error(f"Audio processing error: {e}")
                 else:
                     st.warning("⚠️ No audio recorded")
 
