@@ -20,6 +20,8 @@ from config import client, SAMPLE_RATE, CHANNELS
 def _to_mono_int16(x) -> np.ndarray:
     if x is None:
         return np.array([], dtype=np.int16)
+    if isinstance(x, list):                          # ← ADD THIS
+        x = np.concatenate(x, axis=-1)              # ← ADD THIS
     arr = np.asarray(x, dtype=np.float32)
     if arr.size == 0:
         return np.array([], dtype=np.int16)

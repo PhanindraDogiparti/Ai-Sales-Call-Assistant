@@ -397,7 +397,7 @@ if tab == "Record":
                 audio_frames = ctx.audio_processor.frames
 
                 if len(audio_frames) > 0:
-                    audio_np = np.concatenate(audio_frames, axis=0)
+                    audio_np = np.concatenate(audio_frames, axis=1)
                     st.session_state["audio"] = audio_np
                     st.session_state["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
                     st.success("✅ Audio captured successfully")
