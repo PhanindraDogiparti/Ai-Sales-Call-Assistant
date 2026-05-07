@@ -1076,10 +1076,11 @@ elif tab == "Agent Summary":
                         ai_summary = response.choices[0].message.content.strip()
 
                     st.success("✅ AI Summary Generated")
+                    formatted_summary = ai_summary.replace("\n", "<br>")
                     st.markdown(
                         f"""
                         <div style="background:#F9FAFB; border:1px solid #E5E7EB; border-radius:10px; padding:16px;">
-                        {ai_summary.replace("\n", "<br>")}
+                        {formatted_summary}
                         </div>
                         """,
                         unsafe_allow_html=True,
